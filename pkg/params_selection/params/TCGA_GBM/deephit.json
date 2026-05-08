@@ -1,0 +1,1 @@
+{"n_hid_layers": 2, "hidden_dim": 128, "activation": "Tanh", "lr": 0.0001399596165869675, "dropout": 0.034175579911913244, "batch_size": 128, "norm": true, "alpha": 0.02391864242801159, "sigma": 1}

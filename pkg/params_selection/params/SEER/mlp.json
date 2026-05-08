@@ -1,0 +1,1 @@
+{"layer_n": 2, "hidden_dim": 512, "activation": "SELU", "llh_radius": 5, "lr": 0.002061868819461934, "batch_size": 32, "normalization": true, "rtdl_n_bins": 32, "emb_dim_rtdl": 16, "rtdl_activation": false}

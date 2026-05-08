@@ -1,0 +1,1 @@
+{"n_blocks": 2, "d_block": 256, "k": 8, "activation": "SELU", "llh_radius": 4, "lr": 0.0015046120676566522, "batch_size": 64, "dropout": 0.022339997198305633, "rtdl_n_bins": 64, "emb_dim_rtdl": 16, "rtdl_activation": true}

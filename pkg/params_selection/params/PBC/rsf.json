@@ -1,0 +1,6 @@
+{
+    "min_samples_split": 0.01,
+    "n_estimators": 50,
+    "max_features": "sqrt",
+    "max_depth": null
+}

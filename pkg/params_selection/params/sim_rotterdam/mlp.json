@@ -1,0 +1,1 @@
+{"layer_n": 2, "hidden_dim": 256, "activation": "SiLU", "llh_radius": 3, "lr": 0.0038669811329963876, "batch_size": 64, "normalization": true, "rtdl_n_bins": 64, "emb_dim_rtdl": 16, "rtdl_activation": false}

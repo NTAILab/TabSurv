@@ -1,0 +1,15 @@
+{
+  "early_stopping_rounds": 10,
+  "learning_rate": 0.03128613353075654,
+  "max_depth": 2,
+  "min_child_weight": 1.2244562758338702,
+  "subsample": 0.6606407750351777,
+  "colsample_bytree": 0.9289435317905107,
+  "l2_reg": 0.0022897017268132336,
+  "l1_reg": 0.018277182829283475,
+  "aft_loss_distribution": "logistic",
+  "aft_loss_distribution_scale": 2.4852897573762753,
+  "wb_penalty": 0.021793179903536533,
+  "wb_l1_ratio": 0.11733552222156711,
+  "num_boost_round": 2000
+}

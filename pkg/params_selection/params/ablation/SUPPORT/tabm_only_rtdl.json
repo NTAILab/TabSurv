@@ -1,0 +1,1 @@
+{"n_blocks": 3, "d_block": 128, "k": 1, "activation": "SELU", "llh_radius": 3, "lr": 0.00022338858030846535, "batch_size": 64, "dropout": 0.020238977968243574}

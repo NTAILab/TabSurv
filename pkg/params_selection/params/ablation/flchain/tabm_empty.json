@@ -1,0 +1,1 @@
+{"n_blocks": 3, "d_block": 256, "k": 1, "activation": "SELU", "lr": 0.00044947590568887797, "batch_size": 64, "dropout": 0.04193641658100775}

@@ -1,0 +1,14 @@
+{
+    "d_block": 512,
+    "n_blocks": 3,
+    "k": 16,
+    "activation": "ReLU",
+    "loss": "soft-llh",
+    "llh_radius": 3,
+    "lr": 0.0011773896354742234,
+    "dropout": 0.05907578643343909,
+    "batch_size": 64,
+    "rtdl_n_bins": 32,
+    "emb_dim_rtdl": 12,
+    "rtdl_activation": false
+}

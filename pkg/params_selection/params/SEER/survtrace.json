@@ -1,0 +1,10 @@
+{
+    "num_hidden_layers": 2,
+    "hidden_size": 256,
+    "intermediate_size": 128,
+    "num_attention_heads": 4,
+    "lr": 0.000270785549578984,
+    "hidden_dropout_prob": 0.014650922565565322,
+    "batch_size": 32,
+    "weight_decay": 0.04023726756184528
+}

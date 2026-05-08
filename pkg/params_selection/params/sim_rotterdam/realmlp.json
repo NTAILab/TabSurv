@@ -1,0 +1,1 @@
+{"n_hidden_layers": 4, "hidden_dim": 512, "activation": "SELU", "llh_radius": 4, "lr": 0.0002403707170166903, "batch_size": 64, "n_frequencies": 48, "emb_dim_rtdl": 12, "frequency_scale": 0.031900714693962065}

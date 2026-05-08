@@ -1,0 +1,12 @@
+{
+    "n_hidden_layers": 4,
+    "hidden_dim": 128,
+    "activation": "Mish",
+    "loss": "soft-llh",
+    "llh-radius": 5,
+    "lr": 0.0005164502327093732,
+    "batch_size": 64,
+    "n_frequencies": 64,
+    "frequency_scale": 0.3084686604269269,
+    "emb_dim_rtdl": 16
+}

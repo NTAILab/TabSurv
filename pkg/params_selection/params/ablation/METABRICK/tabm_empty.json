@@ -1,0 +1,1 @@
+{"n_blocks": 3, "d_block": 512, "k": 1, "activation": "SiLU", "lr": 0.003665274374442894, "batch_size": 64, "dropout": 0.07033747307095593}

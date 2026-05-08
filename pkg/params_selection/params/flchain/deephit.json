@@ -1,0 +1,1 @@
+{"n_hid_layers": 1, "hidden_dim": 512, "activation": "ReLU", "lr": 0.00019058787562903687, "dropout": 0.015321135119177253, "batch_size": 128, "norm": false, "alpha": 0.13007939897433532, "sigma": 0.1}

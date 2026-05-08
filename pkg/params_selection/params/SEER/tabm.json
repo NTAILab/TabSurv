@@ -1,0 +1,14 @@
+{
+    "d_block": 128,
+    "n_blocks": 2,
+    "k": 16,
+    "activation": "SiLU",
+    "loss": "soft-llh",
+    "llh_radius": 2,
+    "lr": 0.0014391262374370464,
+    "dropout": 0.03547126940075632,
+    "batch_size": 96,
+    "rtdl_n_bins": 32,
+    "emb_dim_rtdl": 12,
+    "rtdl_activation": true
+}

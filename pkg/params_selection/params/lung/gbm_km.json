@@ -1,0 +1,14 @@
+{
+  "early_stopping_rounds": 10,
+  "learning_rate": 0.05778934453325777,
+  "max_depth": 8,
+  "min_child_weight": 0.29033425732575313,
+  "subsample": 0.9046879380459212,
+  "colsample_bytree": 0.5968136818434141,
+  "l2_reg": 1.8118213289222809,
+  "l1_reg": 0.37376076396069413,
+  "aft_loss_distribution": "normal",
+  "aft_loss_distribution_scale": 0.885755403370961,
+  "n_neighbours": 10,
+  "num_boost_round": 2000
+}

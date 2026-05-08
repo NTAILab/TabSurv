@@ -1,0 +1,1 @@
+{"n_blocks": 1, "d_block": 512, "k": 1, "activation": "ReLU", "lr": 0.0010731431616169164, "batch_size": 96, "dropout": 0.050129223707648454}

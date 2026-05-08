@@ -1,0 +1,12 @@
+{
+    "n_hidden_layers": 2,
+    "hidden_dim": 512,
+    "activation": "SELU",
+    "loss": "soft-llh",
+    "llh_radius": 2,
+    "lr": 0.0011599682959638985,
+    "batch_size": 32,
+    "n_frequencies": 32,
+    "frequency_scale": 0.8623748968659127,
+    "emb_dim_rtdl": 8
+}

@@ -1,0 +1,1 @@
+{"n_blocks": 2, "d_block": 128, "k": 32, "activation": "ReLU", "lr": 0.0005840915697843483, "batch_size": 32, "dropout": 0.03682522038987008, "rtdl_n_bins": 48, "emb_dim_rtdl": 8, "rtdl_activation": false, "loss": "likelihood"}
