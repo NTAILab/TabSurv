@@ -8,6 +8,7 @@ from torchtuples.callbacks import EarlyStopping
 
 import torch
 from .base import CompetitivePycoxBase
+from .util import get_checkpoint_name, avoid_singleton_batch
 
 
 def make_mlp(x_num_dim: int, x_cat_dim: int,
@@ -49,19 +50,23 @@ class DeepSurv(CompetitivePycoxBase):
         self.model = CoxPH(self.nn, optimizer=torch.optim.Adam, device=device)
         self.model.optimizer.set_lr(lr)
         self.batch_size = batch_size
+        self.norm = norm
         self.epochs = epochs
         self.verbose = verbose
         
     def fit(self, X_num: ndarray, 
             X_cat: ndarray, y: np.recarray, 
             val_set: Tuple[ndarray, ndarray, recarray]):
-        callbacks = [EarlyStopping()]
+        callbacks = [EarlyStopping(file_path=f'./checkpoints/{get_checkpoint_name('survtrace', 8)}.pt')]
         x_train = np.concatenate((X_num, X_cat), axis=-1)
         self.y_train = y.copy()
         y = (y['time'].astype(np.float32).copy(), y['censor'].astype(int).copy())
         val_set = (np.concatenate((val_set[0].astype(np.float32), val_set[1].astype(np.float32)), axis=-1), 
                    ((val_set[2]['time'].astype(np.float32).copy(), val_set[2]['censor'].astype(int).copy())))
-        self.model.fit(x_train.astype(np.float32), y, self.batch_size, self.epochs, 
+        train_batch_size = avoid_singleton_batch(
+            x_train.shape[0], self.batch_size, self.norm
+        )
+        self.model.fit(x_train.astype(np.float32), y, train_batch_size, self.epochs,
                        callbacks, self.verbose, val_data=val_set)
         self.model.compute_baseline_hazards()
     
@@ -101,13 +106,14 @@ class DeepHit(CompetitivePycoxBase):
                                    alpha=alpha, sigma=sigma)
         self.model.optimizer.set_lr(lr)
         self.batch_size = batch_size
+        self.norm = norm
         self.epochs = epochs
         self.verbose = verbose
         
     def fit(self, X_num: ndarray, 
             X_cat: ndarray, y: np.recarray, 
             val_set: Tuple[ndarray, ndarray, recarray]):
-        callbacks = [EarlyStopping()]
+        callbacks = [EarlyStopping(file_path=f'./checkpoints/{get_checkpoint_name('survtrace', 8)}.pt')]
         x_train = np.concatenate((X_num, X_cat), axis=-1)
         self.y_train = y.copy()
         min_uncens_time = y['time'][y['censor']].min()
@@ -118,5 +124,8 @@ class DeepHit(CompetitivePycoxBase):
         y = self.labtrans.transform(*y)
         y_val = self.labtrans.transform(val_set[2]['time'].astype(np.float32).copy(), val_set[2]['censor'].astype(int).copy())
         val_set = (np.concatenate((val_set[0].astype(np.float32), val_set[1].astype(np.float32)), axis=-1), y_val)
-        self.model.fit(x_train.astype(np.float32), y, self.batch_size, self.epochs, 
+        train_batch_size = avoid_singleton_batch(
+            x_train.shape[0], self.batch_size, self.norm
+        )
+        self.model.fit(x_train.astype(np.float32), y, train_batch_size, self.epochs,
                        callbacks, self.verbose, val_data=val_set)

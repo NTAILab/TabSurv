@@ -53,6 +53,7 @@ class SoftLlhLoss(LossBase):
         sigma = radius / 3
         coef = 1 / (np.sqrt(2 * np.pi) * sigma)
         self.coeffs = coef * torch.exp(-(x - torch.arange(time_ruler.shape[0])[:, None]) ** 2 / (2 * sigma ** 2))
+        self.coeffs = self.coeffs / self.coeffs.sum(dim=-1, keepdim=True)
         self.coeffs = self.coeffs.to(device)
         
     def forward(self, logits: torch.Tensor, t_target: torch.Tensor, c_target: torch.Tensor):

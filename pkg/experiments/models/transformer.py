@@ -6,16 +6,9 @@ from .survtrace.utils import LabelTransform
 import pandas as pd
 from .survtrace.model import SurvTraceSingle
 from .survtrace.train_utils import Trainer
-import torch
-from .base import get_str_array
 from ...util import score
-import random
-import string
+from .util import get_checkpoint_name, avoid_singleton_batch
 
-def generate_random_string(length):
-    characters = string.ascii_letters + string.digits
-    random_string = ''.join(random.choices(characters, k=length))
-    return random_string
 
 class SurvTRACE(CompetitiveModelBase):
     def __init__(self,
@@ -31,12 +24,13 @@ class SurvTRACE(CompetitiveModelBase):
                  epochs: int,
                  lr: float,
                  weight_decay: float,
-                 verbose: bool
+                 verbose: bool,
+                 seed: int | None = None,
                  ):
         super().__init__()
         self.config = EasyDict({
-            'seed': 1234,
-            'checkpoint': f'./checkpoints/survtrace{generate_random_string(8)}.pt',
+            'seed': 1234 if seed is None else seed,
+            'checkpoint': f'./checkpoints/{get_checkpoint_name('survtrace', 8)}.pt',
             'hidden_size': hidden_size,
             'intermediate_size': intermediate_size,
             'num_hidden_layers': num_hidden_layers,
@@ -105,7 +99,7 @@ class SurvTRACE(CompetitiveModelBase):
         trainer = Trainer(self.model, self.device_id, self.verbose)
         trainer.fit(
             (df_train, df_y_train), (df_val, df_y_val),
-            batch_size=self.batch_size,
+            batch_size=avoid_singleton_batch(df_train.shape[0], self.batch_size, True),
             epochs=self.epochs,
             learning_rate=self.lr,
             weight_decay=self.weight_decay

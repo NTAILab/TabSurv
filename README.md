@@ -1,102 +1,215 @@
 # TabSurv
 
-This repository contains the official implementation of **TabSurv**, proposed in the accompanying paper.  
-The code is provided for reproducibility and research purposes.
+Official research implementation of **TabSurv** for tabular survival analysis.
+The repository contains the model, baseline adapters,
+nested cross-validation experiments, Optuna search spaces, ablation studies, and
+the results used to build the paper tables and figures.
 
-## Environment Setup
+## Setup
 
-The repository includes an `environment.yml` file for creating a Conda environment with all required dependencies.
+Create the pinned Conda environment from the repository root:
 
 ```bash
 conda env create -f environment.yml
 conda activate tabsurv
 ```
 
-## Repository Structure
+The environment uses Python 3.13 and includes PyTorch, scikit-survival, pycox,
+XGBoost/XGBSE, Optuna, MLflow, and the plotting/Jupyter dependencies. Commands
+below must be run from the repository root because data and output paths are
+relative to it.
 
-The repository is organized as follows:
+The exact Conda build strings in `environment.yml` were exported on macOS
+Apple Silicon. On another platform, use it as the dependency/version reference
+and install platform-appropriate builds (including a CUDA-enabled PyTorch build
+when GPU execution is required).
 
-```
+## Repository layout
+
+```text
 .
-├── environment.yml
-├── data/
-│   └── *.npz
-├── parts_ablation/
-│   ├── *.json
-│   └── parts_ablation.ipynb
+├── parts_ablation/               # saved component-ablation results and notebook
 ├── pkg/
-│   ├── model/
-│   │   ├── *.py
+│   ├── model/                    # TabSurv, MLP, RealMLP, and loss implementations
 │   ├── experiments/
-│   │   ├── models/
-│   │   ├── results/
-│   │   ├── losses.csv
-│   │   ├── paper_format.py
-│   │   ├── simulation.py
-│   │   ├── experiment.py
-│   │   └── *.py
-│   └── params_selection/
-│       ├── params/
-│       └── *.py
+│   │   ├── comparison.py         # nested-CV comparison CLI
+│   │   ├── experiment.py         # compatibility alias for comparison.py
+│   │   ├── data.py               # unified dataset loader/converter
+│   │   ├── objective_factory.py  # model search spaces and objectives
+│   │   ├── mlp_loss_search.py    # MLP loss search with MLflow logging
+│   │   ├── models/               # baseline model adapters
+│   │   ├── paper_format.py       # LaTeX table and figure generation
+│   │   ├── parts_ablation.py     # component-ablation experiment
+│   │   ├── simulation.py         # synthetic-data experiment
+│   │   └── results/results.csv   # bundled nested-CV results
+│   └── params_selection/         # parameter selection for ablation studies
+└── environment.yml
 ```
 
-### `data/`
+## Data
 
-Contains compressed datasets (`.npz`) used in the experiments reported in the paper.
+We omit the dataset files from the repository because of their size. If you need
+them to run the experiments, please [open a GitHub issue](https://github.com/NTAILab/TabSurv/issues/new)
+and specify which datasets you need.
 
-### `parts_ablation/`
+The main benchmark contains ten datasets:
 
-Contains experiments for Figure 4 in the paper.
+`flchain`, `gbsg2`, `METABRICK`, `SEER`, `SUPPORT`, `rotterdam`,
+`TCGA_GBM`, `whas500`, `lung`, and `PBC`.
 
-### `pkg/model/`
+The comparison expects one NPZ file per dataset with three arrays:
 
-Implementation of the proposed **TabSurv** method.
+- `X_num`: two-dimensional numerical features;
+- `X_cat`: two-dimensional categorical features;
+- `y`: a one-dimensional structured array with `censor` and `time` fields.
 
-### `pkg/experiments/`
-
-Code for running experiments and reproducing results from the paper.
-
-- `experiment.py` — main entry point for running experiments.
-- `models/` — source code and adapters for baseline models used for comparison.
-- `results/` — directory where experimental results are stored.
-- `simulation.py` — code for generating the synthetic dataset used in experiments.
-- `paper_format.py` — utilities for aggregating results and producing tables and figures as reported in the paper.
-
-### `pkg/params_selection/`
-
-Scripts for hyperparameter optimization using **Optuna**.
-
-- Each script corresponds to a specific model.
-- `params/` contains the selected hyperparameters used in all reported experiments.
-
-## Running Experiments
-
-All experiments are executed from the root of the repository using Python module execution.
-
-For example, to run the experiment corresponding to **Table 3** on the SEER dataset:
+`data/sim_rotterdam.npz` and `data/sim_rotterdam_full.npz` support the separate
+simulation workflow. To convert an older train/validation/test NPZ file to the
+unified format in place, run:
 
 ```bash
-python -m pkg.experiments.experiment -data SEER -device cuda:1
+python -m pkg.experiments.data path/to/dataset.npz
 ```
 
-After the experiments are completed, the results can be aggregated and formatted using:
+With no positional paths, the converter checks every `.npz` file under `data/`;
+already unified or incompatible simulation files are skipped.
+
+## Model comparison
+
+`pkg.experiments.comparison` performs repeated nested cross-validation. By
+default it uses 10 repeats, four outer test folds, 100 Optuna trials per fold,
+and a single stratified 25% validation holdout shared by all trials in each outer fold. It records C-index, integrated Brier score
+(IBS), time-dependent AUC, training time, seeds, and selected parameters.
+
+The comparison reads raw covariates from `data/raw/<name>.npz` (override with
+`-data_dir`). Supply the same three arrays described above, with one column per
+original covariate. Use NaN for missing numerical values and either numeric
+codes with NaN or Unicode labels with an empty string for missing categories.
+
+Imputation, standardization, and one-hot encoding are fitted on the training
+subset. The final fit uses the full outer training fold for CoxPH and RSF.
+Other methods reserve a stratified 25% of that fold for early stopping.
+
+For a short smoke run after supplying raw SEER data:
 
 ```bash
-python -m pkg.experiments.paper_format
+python -m pkg.experiments.comparison \
+  -data SEER \
+  -model tabm \
+  -trials 2 \
+  -repeats 1 \
+  -device cpu \
+  -table_filename pkg/experiments/results/smoke.csv
 ```
 
-## Hyperparameter Selection
-
-Hyperparameters for each model are selected using Optuna.
-
-For example, to perform hyperparameter optimization for the **TabSurv_LS(MLP)** model on the SEER dataset:
+For the full default run, omit `-trials` and `-repeats`:
 
 ```bash
-python -m pkg.params_selection.mlp -data SEER
+python -m pkg.experiments.comparison \
+  -data SEER \
+  -model tabm \
+  -device cpu \
+  -table_filename pkg/experiments/results/comparison_table.csv
 ```
 
-All selected hyperparameters used in the experiments are stored in:
+Use a PyTorch device such as `cuda:0` instead of `cpu` when a compatible GPU
+environment is installed.
 
+`python -m pkg.experiments.experiment` is an equivalent compatibility entry
+point. Available models are:
+
+```text
+mlp, realmlp, tabm, weibull_params, weibull_proba, deepsurv,
+deephit, survtrace, coxph, rsf, gbm_km, gbm_wb
 ```
-pkg/params_selection/params/
+
+Useful options include:
+
+- `-data_dir`: directory of raw benchmark datasets (default: `data/raw`);
+- `-repeats_spec 1 3 ...`: run only selected 1-based repeat numbers;
+- `-seed`: outer random seed (default: `42`);
+- `-threads`: PyTorch CPU threads (default: `8`);
+- `-logger_filename`: additionally write logs to a file.
+
+Results are appended as semicolon-separated rows. Use a distinct output file for
+independent runs to avoid mixing configurations.
+
+## Paper results and formatting
+
+The repository includes the complete benchmark output at
+`pkg/experiments/results/results.csv`: 12 models × 10 datasets × 10 repeats ×
+4 folds. Formatting utilities validate that all expected repeats and folds are
+present and discard duplicate model/dataset/repeat/fold rows by keeping the most
+recent one.
+
+Generate the three model-rank figures from the bundled results:
+
+```bash
+python -c "from pkg.experiments.paper_format import get_metric_figure; get_metric_figure('pkg/experiments/results/results.csv', 'figures')"
+```
+
+Generate the large LaTeX tables:
+
+```bash
+mkdir -p tex_tables
+python -c "from pathlib import Path; from pkg.experiments.paper_format import get_metric_table_big; [Path(f'tex_tables/table_{m}.tex').write_text(get_metric_table_big(m, 'pkg/experiments/results/results.csv')) for m in ('c_index', 'ibs', 'auc')]"
+```
+
+The lower-level `get_metric_table_small`, `get_metric_table_big`, and
+`get_metric_figure` functions accept another results path and an `outer_seed`
+when formatting newly generated runs.
+
+## MLP loss search
+
+`mlp_loss_search.py` compares three MLP objectives (`c-index`, `likelihood`, and
+`soft-llh`) using independent Optuna studies and logs validation metrics and best
+parameters to MLflow. Start a local tracking server if one is not already
+available:
+
+```bash
+mlflow server --host 127.0.0.1 --port 5000
+```
+
+Then run, for example:
+
+```bash
+python -m pkg.experiments.mlp_loss_search \
+  -data SEER \
+  -device cpu \
+  -trials_per_loss 50 \
+  -k_optuna 1 \
+  -val_metric c_index
+```
+
+The default tracking URI is `http://127.0.0.1:5000`; override it with
+`-tracking_uri`. `-trials_per_loss` is the budget for each loss, so the total
+number of trials is three times that value.
+
+## Other experiments
+
+Run the component ablation for one dataset:
+
+```bash
+python -m pkg.experiments.parts_ablation -data SEER -device cpu -iters 20
+```
+
+Its JSON output is written below `pkg/experiments/results/<dataset>/`. The
+precomputed results and the notebook used for their analysis are in
+`parts_ablation/`.
+
+Run the synthetic Rotterdam experiment with one or more devices/workers:
+
+```bash
+python -m pkg.experiments.simulation -device cpu -iters 20 -n_workers 1
+```
+
+## Ablation parameter selection
+
+The scripts in `pkg/params_selection/` contain only the Optuna parameter
+searches used for the ablation studies. Selected configurations are stored
+under `pkg/params_selection/params/ablation/<dataset>/`. For example:
+
+```bash
+python -m pkg.params_selection.ablation_empty -data SEER -device cpu
+python -m pkg.params_selection.ablation_non_loss -data SEER -device cpu
 ```

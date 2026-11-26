@@ -94,10 +94,12 @@ class SurvMLP(torch.nn.Module):
     # predicts logits of the event probability
     def forward(self, x_num: torch.Tensor, x_cat: torch.Tensor, f_fit: bool):
         logits = self.baseline(x_num=x_num, x_cat=x_cat)
-        if not f_fit and logits.ndim == 3:
-            logits = torch.mean(logits, dim=1)
+        if logits.ndim == 3:
+            logits = torch.log_softmax(logits, dim=-1)
+            if not f_fit:
+                logits = torch.mean(logits, dim=1)
         return logits
-    
+
     # predict survival function
     @torch.inference_mode()
     def predict(self, X_num: np.ndarray, X_cat: np.ndarray, batch_size: int = 512):
@@ -277,7 +279,7 @@ class SurvMLPWeibull(SurvMLP):
         
         if not f_fit and self.mode == 'wbl_params_mean':
             k = torch.mean(k, dim=1)
-            log_lmd = torch.mean(log_lmd, dim=1)
+            log_lmd = torch.logsumexp(log_lmd, dim=1) - np.log(log_lmd.shape[1]).item()
             tens_shape = (tens_shape[0], tens_shape[-1])
             log_time = log_time[0]
                 
@@ -295,8 +297,8 @@ class SurvMLPWeibull(SurvMLP):
         log_S = -u
 
         if not f_fit and self.mode == 'wbl_proba_mean':
-            logits = torch.mean(logits, dim=1)
-            log_S = torch.mean(log_S, dim=1)
+            logits = torch.logsumexp(logits, dim=1) - np.log(log_lmd.shape[1]).item()
+            log_S = torch.logsumexp(log_S, dim=1) - np.log(log_lmd.shape[1]).item()
         return {'logits': logits, 'log_sf': log_S}
 
     @torch.inference_mode()

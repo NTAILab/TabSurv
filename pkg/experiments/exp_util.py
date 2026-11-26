@@ -6,10 +6,10 @@ from ..model.tabm import TabMBaseline
 from ..model.loss import CIndexLoss, LikelihoodLoss, SoftLlhLoss
 from ..model.model import SurvMLP, SurvMLPWeibull
 from .models.py_cox import DeepHit, DeepSurv
-from .models.sk_surv import RSF, CoxNet
+from .models.sk_surv import CoxPH, RSF
 from .models.xg_boost import AFTModel, GBMKM, GBMWeibull
 from .models.transformer import SurvTRACE
-from typing import Literal, Tuple, List, Dict
+from typing import Dict, Iterable, List, Literal, Sequence, Tuple
 from torch import from_numpy
 from torch.nn import Module
 from functools import cache
@@ -24,6 +24,7 @@ from ..util import get_str_array
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager
 import traceback
+import random
 from scipy.stats import wasserstein_distance, ks_2samp, cramervonmises_2samp
 import torch
 
@@ -62,16 +63,23 @@ def make_loss(loss_name: str, llh_rad: int,
 def get_model(model_name: str, config: dict,
               X_num: np.ndarray, X_cat: np.ndarray,
               y_train: np.recarray, time_ruler: np.ndarray,
-              device: str| None = None):
+              device: str | None = None,
+              seed: int | None = None):
     if device is None:
         device = 'cpu'
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
     if model_name.startswith('tabm'): # ablation
         model_name = 'tabm'
     match model_name:
         case 'rsf':
-            return RSF(time_ruler=time_ruler, **config)
-        case 'coxnet':
-            return CoxNet(**config)
+            return RSF(time_ruler=time_ruler, random_state=seed, **config)
+        case 'coxph':
+            return CoxPH(time_ruler=time_ruler, **config)
         case 'aft':
             return AFTModel(
                 num_boost_round=config["num_boost_round"],
@@ -90,6 +98,7 @@ def get_model(model_name: str, config: dict,
                 aft_loss_distribution=config["aft_loss_distribution"],
                 aft_loss_distribution_scale=config["aft_loss_distribution_scale"],
                 n_jobs=8,
+                random_state=seed,
                 verbose=False
             )
         case 'gbm_km':
@@ -111,6 +120,7 @@ def get_model(model_name: str, config: dict,
                 aft_loss_distribution_scale=config["aft_loss_distribution_scale"],
                 n_neighbors=config["n_neighbours"],
                 n_jobs=8,
+                random_state=seed,
                 verbose=False
             )
         case 'gbm_wb':
@@ -133,6 +143,7 @@ def get_model(model_name: str, config: dict,
                 wb_penalty=config.get("wb_penalty", 0.0),
                 wb_l1_ratio=config["wb_l1_ratio"],
                 n_jobs=8,
+                random_state=seed,
                 verbose=False
             )
         case 'deepsurv':
@@ -149,7 +160,7 @@ def get_model(model_name: str, config: dict,
             else:
                 device_id = 0 if device == 'cuda' else int(device.split(':')[-1])
             return SurvTRACE(device_id=device_id, time_ruler=time_ruler, epochs=200,
-                             early_stop=10, verbose=False, **config)
+                             early_stop=10, verbose=False, seed=seed, **config)
         case 'mlp' | 'realmlp' | 'tabm' | 'weibull_params' | 'weibull_proba':
             rtdl_embeddings, rtdl_dim = get_num_emb(model_name, config, X_num, y_train)
             f_wbl_model = model_name.startswith('weibull')
@@ -261,10 +272,11 @@ models_rename = {
     'deepsurv': 'DeepSurv',
     'deephit': 'DeepHit',
     'survtrace': 'SurvTRACE',
+    'coxph': 'CoxPH',
     'rsf': 'RSF',
     # 'aft': 'AFT',
-    'gbm_km': "XGBSEKaplanNeighbors",
-    'gbm_wb': "XGBSEStackedWeibull",
+    'gbm_km': "GBM-KM",
+    'gbm_wb': "GBM-Weibull",
     # 'tabm_non_ens': r'$\text{TabSurv}_\text{LAS}\setminus\text{Ens.}$',
     # 'tabm_non_loss': r'$\text{TabSurv}_\text{LAS}\setminus\text{Loss}$',
     # 'tabm_non_rtdl': r'$\text{TabSurv}_\text{LAS}\setminus\text{RTDL}$'
@@ -278,6 +290,291 @@ gpu_models = {
     'weibull_params',
     'weibull_proba',
 }
+
+datasets_rename = {
+    'flchain': 'FLC',
+    'gbsg2': 'GBSG2',
+    'METABRICK': 'METABRICK',
+    'SEER': 'SEER',
+    'SUPPORT': 'SUPPORT',
+    'rotterdam': 'Rotterdam',
+    'TCGA_GBM': 'TCGA-GBM',
+    'whas500': 'WHAS500',
+    'lung': 'Lung',
+    'PBC': 'PBC',
+    'sim_rotterdam': 'Simulated Rotterdam',
+}
+
+
+def delete_duplicates(
+    df: pd.DataFrame,
+    dedup_key: tuple[str, ...] = ('model_name', 'ds_name', 'fold_seed', 'repeat_seed'),
+) -> pd.DataFrame:
+    return df.drop_duplicates(subset=dedup_key, keep='last', inplace=False)
+
+
+def summarize_experiments(
+    df: pd.DataFrame,
+    dedup_key: tuple[str, ...] = ('model_name', 'ds_name', 'fold_seed', 'repeat_seed'),
+    metric_cols: tuple[str, ...] = ('c_index', 'ibs', 'auc'),
+    time_col: str = 'time',
+    repeat_col: str = 'repeat_i',
+    extra_group_cols: tuple[str, ...] = tuple(),
+) -> pd.DataFrame:
+    """Average raw fold results for each model, dataset, and repeat."""
+    work = delete_duplicates(df, dedup_key)
+    group_cols = list(dict.fromkeys((*extra_group_cols, 'model_name', 'ds_name', repeat_col)))
+    agg_dict = {column: 'mean' for column in metric_cols}
+    agg_dict[time_col] = 'mean'
+    return (
+        work.groupby(group_cols, as_index=False)
+        .agg(agg_dict)
+        .rename(columns={time_col: f'mean_{time_col}'})
+        .sort_values(group_cols)
+        .reset_index(drop=True)
+    )
+
+
+def ranks_from_results(
+    df: pd.DataFrame,
+    models: Sequence[str],
+    metric_cols: Sequence[str] = ('c_index', 'ibs', 'auc'),
+    bigger_is_better: dict[str, bool] | None = None,
+    group_cols: tuple[str, ...] = ('ds_name', 'fold_seed'),
+    model_col: str = 'model_name',
+    dedup_key: tuple[str, ...] = ('model_name', 'ds_name', 'fold_seed', 'repeat_seed'),
+) -> pd.DataFrame:
+    """Replace raw metrics with per-split model ranks, retaining missing rows."""
+    required_cols = {model_col, *group_cols, *metric_cols}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f'Dataframe is missing columns: {sorted(missing_cols)}')
+
+    if bigger_is_better is None:
+        bigger_is_better = {'c_index': True, 'ibs': False, 'auc': True}
+
+    rank_cols = [f'{metric}_rank' for metric in metric_cols]
+    work = delete_duplicates(df, dedup_key)
+    group_df = work[list(group_cols)].drop_duplicates()
+    work = work[work[model_col].isin(models)].copy()
+    index_cols = [*group_cols, model_col]
+    rank_df = work[index_cols].drop_duplicates().set_index(index_cols)
+
+    for metric in metric_cols:
+        metric_ranks = work.groupby(list(group_cols))[metric].rank(
+            method='average',
+            ascending=not bigger_is_better.get(metric, True),
+            na_option='keep',
+        )
+        metric_rank_df = work[index_cols].copy()
+        metric_rank_df[f'{metric}_rank'] = metric_ranks
+        metric_rank_df = (
+            metric_rank_df.groupby(index_cols, as_index=True)[f'{metric}_rank']
+            .last()
+            .to_frame()
+        )
+        rank_df = rank_df.join(metric_rank_df, how='left')
+
+    full_index_df = group_df.merge(pd.DataFrame({model_col: list(models)}), how='cross')
+    full_index = pd.MultiIndex.from_frame(full_index_df[index_cols])
+    result = (
+        rank_df.reindex(full_index)
+        .reset_index()
+        .sort_values(index_cols)
+        .reset_index(drop=True)
+    )
+    return result[[*index_cols, *rank_cols]]
+
+
+def _format_int_values(values: Iterable[int]) -> str:
+    sorted_values = sorted(values)
+    return ', '.join(str(value) for value in sorted_values) if sorted_values else 'none'
+
+
+def check_results(
+    df: pd.DataFrame,
+    folds: int,
+    repeats: int,
+    models: Sequence[str] | None = None,
+    outer_seed: int = 42,
+    model_col: str = 'model_name',
+    dataset_col: str = 'ds_name',
+    repeat_col: str = 'repeat_i',
+    fold_col: str = 'fold_i',
+    outer_seed_col: str = 'outer_seed',
+) -> bool:
+    """Check that every selected model/dataset has all folds and repeats."""
+    required_cols = {model_col, dataset_col, repeat_col, fold_col, outer_seed_col}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f'Dataframe is missing columns: {sorted(missing_cols)}')
+    if folds <= 0:
+        raise ValueError('folds must be positive')
+    if repeats <= 0:
+        raise ValueError('repeats must be positive')
+
+    expected_repeats = set(range(repeats))
+    expected_folds = set(range(folds))
+    work = df[df[outer_seed_col] == outer_seed].copy()
+    models_to_check = (
+        sorted(df[model_col].dropna().unique().tolist())
+        if models is None
+        else list(models)
+    )
+    datasets_to_check = sorted(df[dataset_col].dropna().unique().tolist())
+    is_ok = True
+
+    for model in models_to_check:
+        for dataset in datasets_to_check:
+            pair_df = work[
+                (work[model_col] == model) & (work[dataset_col] == dataset)
+            ]
+            present_repeats = set(pair_df[repeat_col].dropna().astype(int).unique())
+            missing_repeats = expected_repeats - present_repeats
+            extra_repeats = present_repeats - expected_repeats
+            incomplete_folds = {}
+
+            for repeat_i in sorted(expected_repeats & present_repeats):
+                repeat_df = pair_df[pair_df[repeat_col] == repeat_i]
+                present_folds = set(repeat_df[fold_col].dropna().astype(int).unique())
+                missing_folds = expected_folds - present_folds
+                extra_folds = present_folds - expected_folds
+                if missing_folds or extra_folds:
+                    incomplete_folds[repeat_i] = (
+                        present_folds,
+                        missing_folds,
+                        extra_folds,
+                    )
+
+            if missing_repeats or extra_repeats or incomplete_folds:
+                is_ok = False
+                print(
+                    f'[ERROR] Model `{model}`, dataset `{dataset}` has only repeats '
+                    f'{_format_int_values(present_repeats)}'
+                )
+                if missing_repeats:
+                    print(f'        Missing repeats: {_format_int_values(missing_repeats)}')
+                if extra_repeats:
+                    print(f'        Unexpected repeats: {_format_int_values(extra_repeats)}')
+                for repeat_i, values in incomplete_folds.items():
+                    present_folds, missing_folds, extra_folds = values
+                    print(
+                        f'        Repeat {repeat_i} has only folds '
+                        f'{_format_int_values(present_folds)}'
+                    )
+                    if missing_folds:
+                        print(f'        Missing folds: {_format_int_values(missing_folds)}')
+                    if extra_folds:
+                        print(f'        Unexpected folds: {_format_int_values(extra_folds)}')
+            else:
+                print(f'[OK] Model `{model}`, dataset `{dataset}` is ok')
+    return is_ok
+
+
+def metric_matrix_from_melt(
+    df: pd.DataFrame,
+    metric: str,
+    models: Sequence[str] | None = None,
+    datasets: Sequence[str] | None = None,
+    model_col: str = 'model_name',
+    dataset_col: str = 'ds_name',
+    repeat_col: str = 'repeat_i',
+) -> pd.DataFrame:
+    """Build a model-by-dataset matrix averaged over experiment repeats."""
+    required_cols = {model_col, dataset_col, repeat_col, metric}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f'Dataframe is missing columns: {sorted(missing_cols)}')
+
+    work = df.copy()
+    if models is not None:
+        work = work[work[model_col].isin(models)]
+    if datasets is not None:
+        work = work[work[dataset_col].isin(datasets)]
+
+    averages = (
+        work.groupby([model_col, dataset_col], as_index=False)[metric]
+        .mean()
+    )
+    result = averages.pivot(index=model_col, columns=dataset_col, values=metric)
+    if models is not None:
+        result = result.reindex(models)
+    if datasets is not None:
+        result = result.reindex(columns=datasets)
+    return result
+
+
+def metric_latex_table_from_melt(
+    df: pd.DataFrame,
+    metric: Literal['c_index', 'ibs', 'auc'],
+    models: Sequence[str] | None = None,
+    datasets: Sequence[str] | None = None,
+    model_col: str = 'model_name',
+    dataset_col: str = 'ds_name',
+    repeat_col: str = 'repeat_i',
+    precision: int = 3,
+    na_rep: str = '',
+    caption: str | None = None,
+    label: str | None = None,
+) -> str:
+    """Render mean ± standard deviation by model and dataset as LaTeX."""
+    required_cols = {model_col, dataset_col, repeat_col, metric}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f'Dataframe is missing columns: {sorted(missing_cols)}')
+
+    bigger_is_better = {'c_index': True, 'auc': True, 'ibs': False}
+    if metric not in bigger_is_better:
+        raise ValueError(f'Unknown optimization direction for metric: {metric}')
+    work = df.copy()
+    if models is not None:
+        work = work[work[model_col].isin(models)]
+    if datasets is not None:
+        work = work[work[dataset_col].isin(datasets)]
+
+    stats_df = (
+        work.groupby([model_col, dataset_col], as_index=False)
+        .agg(mean=(metric, 'mean'), std=(metric, 'std'))
+    )
+    best_agg = 'max' if bigger_is_better[metric] else 'min'
+    best_means = stats_df.groupby(dataset_col)['mean'].transform(best_agg)
+    stats_df['is_best'] = stats_df['mean'].eq(best_means) & stats_df['mean'].notna()
+
+    def format_cell(row: pd.Series) -> str:
+        mean, std = row['mean'], row['std']
+        if pd.isna(mean):
+            return na_rep
+        value = f'{mean:.{precision}f}'
+        cell = value if pd.isna(std) else f'{value} \\pm {std:.{precision}f}'
+        return f'$\\mathbf{{{cell}}}$' if row['is_best'] else f'${cell}$'
+
+    stats_df['value'] = stats_df.apply(format_cell, axis=1)
+    result = stats_df.pivot(index=model_col, columns=dataset_col, values='value')
+    if models is not None:
+        result = result.reindex(models)
+    if datasets is not None:
+        result = result.reindex(columns=datasets)
+
+    result = result.rename(
+        index={model: models_rename.get(model, model) for model in result.index},
+        columns={dataset: datasets_rename.get(dataset, dataset) for dataset in result.columns},
+    )
+    result.index.name = None
+    result.columns.name = None
+    latex_df = result.T
+    column_format = '|' + '|'.join(['c'] * (len(latex_df.columns) + 1)) + '|'
+    latex = latex_df.to_latex(
+        escape=False,
+        na_rep=na_rep,
+        caption=caption,
+        label=label,
+        column_format=column_format,
+    )
+    return (
+        latex.replace(r'\toprule', r'\hline')
+        .replace(r'\midrule', r'\hline')
+        .replace(r'\bottomrule', r'\hline')
+    )
 
 
 def _result_value_mean(value):
